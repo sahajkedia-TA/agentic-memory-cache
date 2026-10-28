@@ -1,0 +1,505 @@
+PERSISTENT REPOSITORY CONTEXT SYSTEM  |  VS CODE • COPILOT • GITLAB
+ 
+Persistent Repository
+Context System
+
+Implementation guide for VS Code + GitHub Copilot + GitLab
+ 
+A practical, repository-local system for preserving project knowledge across coding-agent sessions in a large, multi-service codebase.
+ 
+Design choice
+Decision
+AI coding agent
+VS Code / GitHub Copilot
+Repository type
+Large repository with multiple services
+Context storage
+Local repository files, versioned with Git
+Version control
+GitLab
+Core strategy
+Curated docs + Copilot instructions + prompt files + optional session-start hook + Git safety
+ 
+Version note: VS Code and Copilot customization features evolve. Verify hook support and behavior in the exact VS Code version and session target you use before enabling automation.
+
+Contents
+• 1. Executive summary and design principles
+• 2. Repository layout
+• 3. What each context file is responsible for
+• 4. Installation and rollout plan
+• 5. Repo-ready file contents
+• 6. Startup and end-of-session workflow
+• 7. Optional VS Code Copilot session-start hook
+• 8. GitLab and Git safety
+• 9. Context validation scripts
+• 10. Multi-service documentation strategy
+• 11. Recommended daily workflow
+• 12. Troubleshooting
+• 13. Acceptance checklist
+• Appendix A. First initialization prompt
+• Appendix B. Session prompts
+
+1. Executive summary and design principles
+The system is designed to prevent coding-agent context loss when a chat ends, a new chat is opened, or work moves between services. It does not depend on chat history being retained. Instead, the checked-out repository contains a concise, reviewable record of the project, its architecture, current work, and durable decisions.
+The core rule
+The repository is the source of truth. Chat history is temporary working context. The actual code, tests, checked-in configuration, and Git history outrank notes if they disagree.
+Design principles
+• Separate stable instructions from current task state and historical decisions.
+• Keep the main context index short; link to deeper service docs rather than duplicating them.
+• Load only the context needed for the task. Do not dump an entire large repo into every prompt.
+• Update context from verified code changes and actual test results, not from model assumptions.
+• Use Git for reviewability and recovery; never let automation perform destructive Git actions.
+• Keep secrets, customer data, credentials, local machine paths, and raw private logs out of committed context.
+• Make automation optional and fail-safe. A missing context file must not break the coding session.
+2. Repository layout
+repo/
+├── .github/
+│   ├── copilot-instructions.md
+│   ├── instructions/
+│   │   ├── backend.instructions.md
+│   │   ├── frontend.instructions.md
+│   │   └── testing.instructions.md
+│   ├── prompts/
+│   │   ├── resume-work.prompt.md
+│   │   ├── checkpoint.prompt.md
+│   │   └── end-session.prompt.md
+│   └── hooks/
+│       ├── context.json
+│       └── load-context.cjs
+├── .vscode/
+│   └── settings.json             # optional; merge carefully
+├── docs/
+│   ├── context/
+│   │   ├── INDEX.md
+│   │   ├── STATE.md
+│   │   ├── ARCHITECTURE.md
+│   │   ├── SERVICE_CATALOG.md
+│   │   ├── DECISIONS.md
+│   │   ├── TASKS.md
+│   │   ├── GITLAB_WORKFLOW.md
+│   │   └── sessions/
+│   │       └── README.md
+│   └── runbooks/
+├── scripts/
+│   ├── context-check.sh
+│   └── context-check.ps1
+├── apps/                         # example only; retain actual repo layout
+├── services/                     # example only; retain actual repo layout
+└── ...
+
+This is a target layout, not a requirement to reorganize an existing repository. Merge these files into your existing structure and adapt path-specific instruction globs to the actual directory names.
+3. Responsibilities of each file
+File
+Purpose
+Update cadence
+.github/copilot-instructions.md
+Stable repo-wide rules and safety boundaries
+When conventions change
+.github/instructions/*.instructions.md
+Rules scoped to backend, frontend, tests, or other file types
+When relevant conventions change
+.github/prompts/resume-work.prompt.md
+Reconstruct context at the start of a fresh session
+Rarely
+.github/prompts/checkpoint.prompt.md
+Update context after a meaningful milestone
+As needed
+.github/prompts/end-session.prompt.md
+Produce a verified handoff before switching chats
+Rarely
+docs/context/INDEX.md
+Navigation map for the context system
+When docs or structure change
+docs/context/STATE.md
+Current objective, progress, validation, blockers, next action
+Every meaningful milestone / session end
+docs/context/ARCHITECTURE.md
+System components, dependencies, data flows, cross-cutting concerns
+When architecture changes
+docs/context/SERVICE_CATALOG.md
+Service paths, entry points, data ownership, callers, commands, tests
+When service facts change
+docs/context/DECISIONS.md
+Decision rationale, alternatives, trade-offs and status
+When durable decisions are made
+docs/context/TASKS.md
+Lightweight work queue; issue tracker remains canonical for teams
+As priorities change
+docs/context/GITLAB_WORKFLOW.md
+Branch, diff, test, stage and merge request safety
+When team workflow changes
+.github/hooks/context.json + load-context.cjs
+Optional session-start injection of curated context
+When hook behavior or context paths change
+scripts/context-check.*
+Check required docs exist and display Git status
+When required docs change
+ 
+What not to do
+• Do not make STATE.md a transcript or a giant project wiki.
+• Do not duplicate every architecture detail into copilot-instructions.md.
+• Do not treat embeddings/RAG as the first solution; curated maps and targeted inspection usually solve the initial continuity problem.
+• Do not assume every Copilot surface automatically reads every file. Use prompts and verify instruction discovery.
+• Do not create an auto-commit or auto-push hook for convenience.
+4. Installation and rollout plan
+Phase 0 — Baseline and safety
+1. Open the correct repository root in VS Code.
+2. Run `git status --short --branch` and `git log -5 --oneline --decorate`.
+3. Confirm the current branch and that no uncommitted work will be overwritten.
+4. Check whether `.github/`, `.vscode/`, `docs/`, and `scripts/` already contain useful files.
+5. Back up or commit existing work according to the team's normal policy before merging new templates.
+Phase 1 — Add the starter files
+6. Extract the provided kit outside the repo first.
+7. Copy or merge `.github/`, `docs/context/`, and `scripts/` into the repo root.
+8. Preserve existing Copilot instructions, prompts, hooks, and settings. Merge content rather than replacing whole files.
+9. Adapt `applyTo` patterns in path-specific instructions to the real folder layout.
+10. Review the optional `.github/hooks/context.json` before enabling it.
+Phase 2 — Populate context from the code
+11. Ask Copilot to inspect manifests, workspace files, service entry points, routing, API specs, database schemas, CI, tests, and deployment configuration.
+12. Fill INDEX.md with the verified repo map.
+13. Fill SERVICE_CATALOG.md with one row per independently deployable service/app/worker.
+14. Document the most important system flows and dependencies in ARCHITECTURE.md.
+15. Leave unknown details explicitly marked `Unknown — needs verification`; do not guess.
+16. Set STATE.md to the real active task. If no task is active, say that no active task is recorded.
+Phase 3 — Verify Copilot discovery
+17. Open Copilot Chat in VS Code and confirm repository instructions are enabled in settings.
+18. Use the Agent Customizations interface to inspect discovered instruction and prompt files where available.
+19. Invoke `/resume-work` and confirm it reads the local context docs and inspects Git state.
+20. Test a small task and verify the agent identifies relevant service files rather than guessing.
+Phase 4 — Optional hook
+Enable the session-start hook only after inspecting the code and confirming the current VS Code version supports the event and JSON shape. Start with a disposable branch/session. If it fails, disable the hook and use the explicit /resume-work prompt.
+Phase 5 — Commit to GitLab
+21. Run the context validation script.
+22. Inspect `git diff --check`, `git diff --stat`, and `git diff`.
+23. Search the added docs for secrets, tokens, personal data, customer details, and machine-specific paths.
+24. Stage explicit paths, inspect the staged diff, then commit on a suitable branch.
+25. Push or open a merge request only when explicitly intended and consistent with project policy.
+5. Repo-ready file contents
+The downloaded ZIP contains the complete starter files. The following sections explain the most important contents and give the core templates for reference.
+5.1 Global Copilot instructions
+# Repository-wide instructions for GitHub Copilot
+
+## Source of truth
+- Code, tests, checked-in configuration, and Git history are authoritative.
+- At a new task/session, read docs/context/STATE.md and docs/context/INDEX.md.
+- Inspect git status and recent commits before editing.
+- Do not claim a file, endpoint, schema, command, test, or behavior exists until verified.
+
+## Change discipline
+- Summarize objective, relevant files/services, constraints, and plan before major changes.
+- Prefer the smallest safe change; avoid unrelated refactors.
+- Search callers, tests, configuration, migrations, and consumers before changing interfaces.
+- Follow applicable service-specific instructions.
+- Never invent API routes, environment variables, schemas, or package scripts.
+
+## Validation
+- Add/update tests for behavior changes.
+- Run the narrowest relevant test first.
+- Report exact commands and outcomes: passed, failed, skipped, not run.
+- Do not claim success without verification.
+
+## Context maintenance
+- Keep STATE.md concise and current.
+- Record durable decisions and rationale in DECISIONS.md.
+- Update architecture/service docs only when verified facts change.
+- Never put secrets, customer data, private logs, or machine-specific paths in context docs.
+
+## Git safety
+- No destructive Git commands without explicit approval.
+- Do not commit, push, merge, or deploy unless explicitly requested.
+- Never stage the whole repository blindly; inspect staged paths and diff.
+
+5.2 Current state template
+# Current project state
+
+## Current objective
+- One sentence describing the active task.
+
+## Status
+- Completed and verified:
+- In progress:
+- Not started:
+
+## Relevant areas
+- Services/modules:
+- Files inspected/changed:
+
+## Validation
+- Passed:
+- Failed:
+- Not run:
+
+## Blockers and risks
+- Reproducible details only; no secrets or giant logs.
+
+## Next action
+- One concrete action a fresh session can perform.
+
+## Last updated
+- YYYY-MM-DD
+
+5.3 Architecture decision record template
+### YYYY-MM-DD — Short title
+- Status: proposed | accepted | superseded
+- Context:
+- Decision:
+- Alternatives considered:
+- Rationale:
+- Consequences / trade-offs:
+- Related code/docs:
+- Supersedes / superseded by:
+
+5.4 Service catalog template
+| Service | Path | Purpose | Entry point | Owns data | Calls / called by | Run command | Tests | Owner |
+|---|---|---|---|---|---|---|---|---|
+| TODO | TODO | TODO | TODO | TODO | TODO | TODO | TODO | TODO |
+
+For each service, record only verified facts. Commands should be copied from actual package scripts, Makefiles, pyproject files, Dockerfiles, or runbooks, not invented.
+6. Startup and end-of-session workflow
+Start a fresh session
+26. Read copilot-instructions.md, INDEX.md, and STATE.md.
+27. Inspect `git status --short --branch` and recent commits.
+28. Read only the relevant service catalog rows, architecture sections, decision records, runbooks, and source files.
+29. Validate the handoff against the current checkout and identify stale notes.
+30. Summarize the objective, verified state, relevant files, constraints, next action, and uncertainty.
+31. Proceed only when the task is clear; otherwise ask one focused question.
+During a task
+32. Keep one feature, bug, or investigation as the unit of work.
+33. Before a significant change, identify impacted services, callers, data contracts, and tests.
+34. After a milestone, run the narrowest relevant tests and use `/checkpoint`.
+35. Update architecture or decisions only when durable facts have changed.
+36. Do not allow an agent to stage or commit by default.
+End a session
+37. Inspect `git status --short --branch`, `git diff --stat`, and the relevant diff.
+38. Update STATE.md with verified completed work, current in-progress state, validation results, blockers, and one concrete next action.
+39. Record significant decisions and their rationale in DECISIONS.md.
+40. Update service catalog or architecture only if confirmed architecture changed.
+41. Inspect the documentation diff for invented claims, secrets, private data, and machine-specific paths.
+42. Leave Git changes uncommitted unless the user explicitly requested a commit.
+7. Optional VS Code Copilot session-start hook
+The supplied hook is deliberately narrow: it reads a small allowlist of context documents and returns them as additional context. It does not run tests, modify files, stage changes, or contact external services.
+Files
+.github/hooks/
+├── context.json
+└── load-context.cjs
+
+Behavior
+• Reads the event input from standard input as JSON.
+• Uses the provided working directory to locate the Git root with `git rev-parse --show-toplevel`.
+• Reads only INDEX.md, STATE.md, and SERVICE_CATALOG.md.
+• Truncates individual documents and caps the total injected context to limit token usage.
+• Returns the text as `additionalContext` in JSON.
+• Fails open: if the hook cannot read the repo or docs, it emits a short message rather than blocking the session.
+Security and reliability notes
+• Review the hook source before enabling it; treat hooks as executable code.
+• Confirm the hook event name, input/output contract, and configuration file format against the current VS Code documentation and installed version.
+• Hook support can vary between local, remote, and cloud/hosted agent sessions.
+• The hook injects a snapshot at session start; it will not automatically reflect changes made later in the session.
+• The hook does not verify facts or update state. The agent must still inspect Git and source files.
+• Do not add `.env`, credentials, raw logs, customer data, or arbitrary files to the allowlist.
+• Keep context files short. The configured limits are safeguards, not a target size.
+Disable / rollback
+If the hook causes errors, remove or disable the hook entry in the hook configuration and continue with `/resume-work`. Do not delete your documentation; the prompt-based workflow works independently.
+8. GitLab and Git safety
+Before starting
+git status --short --branch
+git log -5 --oneline --decorate
+
+Confirm the branch, remote, and local changes before any pull, branch switch, or edit. Never assume the worktree is clean.
+Before staging or committing
+git diff --check
+git diff --stat
+git diff
+git status --short
+
+Stage only intended files, then inspect the staged diff:
+git add .github/copilot-instructions.md docs/context/INDEX.md docs/context/STATE.md
+git diff --cached --name-only
+git diff --cached
+
+The paths above are examples; use the actual paths and do not stage files simply because they are untracked.
+Commands requiring explicit approval
+• `git reset --hard`
+• `git clean -fd` and variants
+• Force-pushes
+• Rewriting shared branch history
+• Commit, push, or merge request creation/merge
+• Production deployment or destructive database operations
+GitLab CI integration
+The context-check script can be added as a lightweight CI job, but only after checking the existing `.gitlab-ci.yml`, runner image, shell, working directory, and service test strategy. Do not replace an existing pipeline or assume all services use the same command. CI validation should fail when required context files are missing, but should not require every template placeholder to be filled during the first bootstrap commit.
+9. Context validation scripts
+The ZIP includes Bash and PowerShell variants. They check that the core instruction and context files exist and are non-empty, then print Git status. They do not validate architecture correctness, execute application tests, scan for secrets, or prove that Copilot loaded instructions.
+macOS / Linux
+bash scripts/context-check.sh
+
+Windows PowerShell
+.\scripts\context-check.ps1
+
+What to add later
+• A documentation lint check for broken relative links.
+• A secret scanner already approved by your organization.
+• A schema check for required fields in STATE.md, if the team wants structured state.
+• A GitLab CI job that uses the repo's supported runtime image.
+• Service-specific test jobs, using existing scripts and test ownership.
+10. Multi-service documentation strategy
+Document the map before the details
+For a large repo, begin with the service catalog and a few important cross-service flows. Do not try to fully document every module before using the system.
+Priority
+Document
+Reason
+P0
+Repo map + current state
+Lets a fresh session orient itself quickly
+P0
+Service catalog
+Shows where each service lives and how it is run/tested
+P1
+Critical request/data flows
+Helps identify downstream effects before changes
+P1
+API/event/schema contracts
+Reduces accidental cross-service breakage
+P2
+Runbooks and operational failure modes
+Useful for incidents and deployment work
+P2
+Decision records
+Preserves why the architecture looks the way it does
+ 
+Per-service checklist
+• Service name and directory
+• Purpose and ownership
+• Entrypoint and runtime
+• Public API, events, queues, or scheduled jobs
+• Data stores and ownership boundaries
+• Upstream and downstream dependencies
+• Configuration variable names (not values or secrets)
+• Local run, lint, type-check, and test commands
+• Migration and deployment order dependencies
+• Observability, retries, timeouts, idempotency, and known operational constraints
+11. Recommended daily workflow
+Moment
+Action
+Result
+New chat/session
+Run `/resume-work`
+Context reconstructed from repo, not chat memory
+Before major edits
+Inspect service dependencies and make a short plan
+Smaller, safer changes
+After a milestone
+Run targeted tests and `/checkpoint`
+State stays current
+Before switching chats
+Run `/end-session` and inspect docs diff
+Reliable handoff
+Before commit
+Review diff, test outcomes, staged paths and secrets
+Safer Git history
+After architecture changes
+Update catalog/architecture/decision records
+Long-term knowledge remains accurate
+ 
+12. Troubleshooting
+Symptom
+Likely cause
+What to do
+Copilot ignores instructions
+Instructions disabled, file not discovered, unsupported surface, or stale session
+Check VS Code settings/customizations, open a new session, invoke `/resume-work` explicitly
+Hook does not run
+Hook feature/version/config mismatch or unsupported session target
+Check current VS Code docs and hook logs/output; disable and use prompt-based flow
+Context is too large
+State/architecture docs became a diary
+Keep STATE concise; move details into linked service docs/runbooks
+Agent repeats completed work
+STATE stale or next action vague
+Update status and write one specific next action
+Docs conflict with code
+Docs drifted
+Verify source/tests/config, correct docs, explicitly note uncertainty
+Wrong service changed
+Service catalog incomplete or task impact not mapped
+Inspect callers, API clients, events, tests, and deployment dependencies before editing
+Context update invents progress
+Agent wrote a summary without inspecting diffs/test results
+Use checkpoint prompt, require exact commands/outcomes, review the diff
+Secret appears in docs/diff
+Sensitive files or logs were copied into context
+Stop, remove from tracked diff, follow org secret-rotation policy if a credential was exposed; do not merely delete from latest version if already committed
+ 
+13. Acceptance checklist
+[ ] Existing files were merged safely; no configuration was blindly overwritten.
+[ ] Global Copilot instructions are enabled and discovered.
+[ ] Path-specific instruction globs match the real repository layout.
+[ ] INDEX.md links to the context docs and major repo areas.
+[ ] SERVICE_CATALOG.md contains verified services, entry points, run/test commands, and dependencies.
+[ ] ARCHITECTURE.md describes important cross-service flows without guessing.
+[ ] STATE.md reflects the real active task and next concrete action.
+[ ] DECISIONS.md records important decisions and rationale, not chat transcripts.
+[ ] `/resume-work`, `/checkpoint`, and `/end-session` are discoverable and tested.
+[ ] Optional session-start hook was reviewed, tested, and can be disabled easily.
+[ ] Context validation scripts run successfully.
+[ ] Git diff was reviewed for secrets, private data, generated files, and unrelated changes.
+[ ] GitLab branch and merge request policy are respected; no automatic commit/push is enabled.
+Appendix A. First initialization prompt
+Initialize the persistent repository context system in this repository.
+
+Inspect the actual repository structure, Git state, manifests, service entry points,
+CI configuration, tests, and existing documentation.
+
+Populate docs/context/INDEX.md, docs/context/SERVICE_CATALOG.md, and
+docs/context/ARCHITECTURE.md using verified information.
+
+Do not rewrite application code, install dependencies, modify deployment behavior,
+or invent missing facts. Mark uncertain information as unknown.
+
+Preserve existing instructions and merge them with .github/copilot-instructions.md
+without creating contradictory rules.
+
+Keep docs/context/STATE.md focused on the actual current work. If the active task is
+unknown, say so instead of inventing one.
+
+At the end, summarize the discovered architecture, list documentation gaps, run the
+context validation script, and show the Git diff. Do not commit or push anything.
+
+Appendix B. Session prompts
+Resume work
+Resume work using the repository's durable context, not memory from another chat.
+
+1. Read copilot-instructions.md, INDEX.md, and STATE.md.
+2. Inspect Git status and recent commits. Preserve all uncommitted changes.
+3. Read relevant service docs and actual source files.
+4. Verify the handoff against the checkout; identify stale/contradictory notes.
+5. Summarize objective, verified state, relevant files, constraints, next action,
+  and uncertainty.
+6. Do not edit until the objective is clear. If a task is supplied, proceed after
+  the brief summary; otherwise ask what to work on.
+
+Checkpoint
+Create a verified checkpoint.
+
+Inspect Git status, diff stat, and relevant diffs. Do not stage or commit.
+Update STATE.md with objective, verified completed work, in-progress work, exact
+validation outcomes, blockers, and the next concrete action.
+Update DECISIONS.md only for durable decisions with rationale.
+Update architecture/service docs only when verified architecture changes.
+Do not claim unrun tests passed. Do not copy secrets or large logs into docs.
+Summarize the documentation changes and uncertainty. Preserve source changes.
+
+End session
+Prepare a handoff so a new Copilot chat can continue without relying on this chat.
+
+Inspect Git status, branch, diff stat, and relevant diffs. Preserve uncommitted work.
+Update STATE.md with objective, verified completed work, in-progress work, changed
+files and reasons, validation commands/results, blockers, and one concrete next action.
+Record durable decisions in DECISIONS.md. Update architecture/catalog only if confirmed.
+Do not commit, push, reset, stash, or stage files.
+Check docs for secrets, customer data, private logs, and machine-specific paths.
+Finish with a concise handoff and state anything not verified.
+
+Final recommendation
+Start with the repo files and prompt-based handoff workflow. Enable the hook only after the manual flow works reliably. For a large multi-service repository, the biggest gains come from a concise current state, a correct service catalog, and a clear map of cross-service dependencies—not from storing every past conversation.
+The included kit is intentionally conservative: it does not auto-edit source code, stage files, commit, push, or deploy. Review and test all changes under your team's GitLab and security policies.
+Implementation guide  •  Review all changes before committing  |  Page
